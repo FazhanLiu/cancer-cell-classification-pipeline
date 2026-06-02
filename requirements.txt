@@ -3,8 +3,8 @@ pandas
 Pillow
 PyYAML
 scikit-learn
+matplotlib
 timm
 torch
 torchvision
 tqdm
-

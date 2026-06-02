@@ -12,6 +12,7 @@ from cancer_pipeline.config import ensure_dir, load_config
 from cancer_pipeline.data import class_weights_from_frame, make_loaders
 from cancer_pipeline.engine import fit, predict
 from cancer_pipeline.models import create_model
+from cancer_pipeline.plots import create_training_plots
 from cancer_pipeline.utils import count_parameters, get_device, save_json, set_seed
 
 
@@ -59,9 +60,9 @@ def main():
     )
     test_predictions.to_csv(output_dir / "test_predictions.csv", index=False)
     save_json({"summary": summary, "test": test_metrics}, output_dir / "metrics.json")
+    create_training_plots(output_dir)
     print(test_metrics)
 
 
 if __name__ == "__main__":
     main()
-

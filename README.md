@@ -72,4 +72,10 @@ outputs/<run_name>/
   metrics.json
   history.csv
   val_predictions.csv
+  loss_curve.png
+  metrics_curve.png
+  val_confusion_matrix.png
+  val_roc_curve.png
+  test_confusion_matrix.png
+  test_roc_curve.png
 ```
