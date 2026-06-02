@@ -5,8 +5,8 @@ PyTorch training pipeline for the Kaggle Histopathologic Cancer Detection datase
 The default configuration is tuned for an NVIDIA RTX 5060 Laptop GPU with about 8 GB VRAM:
 
 - mixed precision training enabled
-- small and medium models first
-- batch size 32 for CNNs, 16 for transformer-style models
+- ResNet50 and ViT-Small only
+- gradient accumulation to keep effective batch size reasonable
 - gradient accumulation supported
 - stratified train/validation split
 
@@ -38,45 +38,28 @@ https://pytorch.org/get-started/locally/
 
 ## Quick Start
 
-Run a lightweight baseline:
+Train ResNet50:
 
 ```powershell
-python scripts/train.py --config configs/resnet18.yaml
+python scripts/train.py --config configs/resnet50.yaml
 ```
 
-Train EfficientNet-B0:
+Train ViT-Small:
 
 ```powershell
-python scripts/train.py --config configs/efficientnet_b0.yaml
-```
-
-Train Swin-Tiny:
-
-```powershell
-python scripts/train.py --config configs/swin_tiny.yaml
+python scripts/train.py --config configs/vit.yaml
 ```
 
 Evaluate a checkpoint:
 
 ```powershell
-python scripts/evaluate.py --config configs/efficientnet_b0.yaml --checkpoint outputs/efficientnet_b0/best.pt
-```
-
-Run soft-voting ensemble:
-
-```powershell
-python scripts/ensemble.py --config configs/ensemble.yaml
+python scripts/evaluate.py --config configs/resnet50.yaml --checkpoint outputs/resnet50/best.pt
 ```
 
 ## Recommended Experiment Order
 
-1. `resnet18`
-2. `efficientnet_b0`
-3. `resnet50`
-4. `swin_tiny`
-5. `vit_tiny_patch16_224`
-6. `hybrid_resnet18_transformer`
-7. best CNN + best transformer soft-voting ensemble
+1. `resnet50`
+2. `vit_small_patch16_224`
 
 ## Outputs
 
