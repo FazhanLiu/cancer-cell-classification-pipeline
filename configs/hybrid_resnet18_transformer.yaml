@@ -1,0 +1,29 @@
+run_name: hybrid_resnet18_transformer
+seed: 42
+dataset:
+  root: E:\cancer_cell_classification\histopathologic-cancer-detection
+  image_size: 224
+  val_size: 0.15
+  test_size: 0.15
+  num_workers: 4
+model:
+  name: hybrid_cnn_transformer
+  backbone: resnet18
+  pretrained: true
+  num_classes: 2
+  embed_dim: 256
+  num_heads: 4
+  depth: 2
+  dropout: 0.1
+train:
+  epochs: 25
+  batch_size: 16
+  grad_accum_steps: 2
+  lr: 0.0001
+  weight_decay: 0.0001
+  label_smoothing: 0.05
+  amp: true
+  early_stopping_patience: 6
+  class_weight: true
+output_dir: outputs
+

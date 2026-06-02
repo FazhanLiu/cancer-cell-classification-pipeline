@@ -1,0 +1,16 @@
+run_name: ensemble_best
+dataset:
+  root: E:\cancer_cell_classification\histopathologic-cancer-detection
+  image_size: 224
+  val_size: 0.15
+  test_size: 0.15
+  num_workers: 4
+models:
+  - name: efficientnet_b0
+    checkpoint: outputs/efficientnet_b0/best.pt
+    weight: 1.0
+  - name: swin_tiny_patch4_window7_224
+    checkpoint: outputs/swin_tiny/best.pt
+    weight: 1.0
+output_dir: outputs
+
