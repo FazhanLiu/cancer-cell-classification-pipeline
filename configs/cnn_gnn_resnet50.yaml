@@ -1,0 +1,27 @@
+run_name: cnn_gnn_resnet50
+seed: 42
+dataset:
+  root: E:\cancer_cell_classification\histopathologic-cancer-detection
+  image_size: 224
+  val_size: 0.15
+  test_size: 0.15
+  num_workers: 4
+model:
+  name: cnn_gnn
+  backbone: resnet50
+  pretrained: true
+  num_classes: 2
+  hidden_dim: 256
+  gnn_layers: 2
+  dropout: 0.2
+train:
+  epochs: 60
+  batch_size: 8
+  grad_accum_steps: 4
+  lr: 0.00005
+  weight_decay: 0.0001
+  label_smoothing: 0.05
+  amp: true
+  early_stopping_patience: 10
+  class_weight: true
+output_dir: outputs

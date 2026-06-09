@@ -50,6 +50,12 @@ Train ViT-Small:
 python scripts/train.py --config configs/vit.yaml
 ```
 
+Train CNN-GNN:
+
+```powershell
+python scripts/train.py --config configs/cnn_gnn_resnet50.yaml
+```
+
 Evaluate a checkpoint:
 
 ```powershell
@@ -60,6 +66,7 @@ python scripts/evaluate.py --config configs/resnet50.yaml --checkpoint outputs/r
 
 1. `resnet50`
 2. `vit_small_patch16_224`
+3. `cnn_gnn_resnet50`
 
 ## Outputs
 
