@@ -24,4 +24,4 @@ train:
   amp: true
   early_stopping_patience: 10
   class_weight: true
-output_dir: outputs
+output_dir: E:\cancer_cell_classification\model_outputs

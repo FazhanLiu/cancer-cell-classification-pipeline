@@ -73,7 +73,7 @@ python scripts/evaluate.py --config configs/resnet50.yaml --checkpoint outputs/r
 Each training run writes:
 
 ```text
-outputs/<run_name>/
+E:\cancer_cell_classification\model_outputs\<run_name>\
   best.pt
   last.pt
   metrics.json
