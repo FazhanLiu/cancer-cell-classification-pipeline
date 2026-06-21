@@ -62,6 +62,34 @@ Evaluate a checkpoint:
 python scripts/evaluate.py --config configs/resnet50.yaml --checkpoint outputs/resnet50/best.pt
 ```
 
+Generate ViT XAI visualizations:
+
+```powershell
+python scripts/xai_vit.py --config configs/vit.yaml --checkpoint outputs/vit_small/best.pt --predictions outputs/vit_small/test_predictions.csv --output outputs/vit_small/xai --threshold 0.36
+```
+
+Generate human-readable LLM explanations from the XAI output:
+
+```powershell
+python scripts/llm_explain_xai.py --provider mock --input outputs/vit_small/xai/xai_explanations.json --output outputs/vit_small/xai/llm_report_mock
+```
+
+Optional free-tier API providers can be used by setting one API key and changing `--provider`:
+
+```powershell
+$env:OPENROUTER_API_KEY="your_key"
+python scripts/llm_explain_xai.py --provider openrouter --input outputs/vit_small/xai/xai_explanations.json --output outputs/vit_small/xai/llm_report_openrouter
+
+$env:GROQ_API_KEY="your_key"
+python scripts/llm_explain_xai.py --provider groq --input outputs/vit_small/xai/xai_explanations.json --output outputs/vit_small/xai/llm_report_groq
+
+$env:GEMINI_API_KEY="your_key"
+python scripts/llm_explain_xai.py --provider gemini --input outputs/vit_small/xai/xai_explanations.json --output outputs/vit_small/xai/llm_report_gemini
+
+$env:HF_TOKEN="your_key"
+python scripts/llm_explain_xai.py --provider huggingface --input outputs/vit_small/xai/xai_explanations.json --output outputs/vit_small/xai/llm_report_huggingface
+```
+
 ## Recommended Experiment Order
 
 1. `resnet50`

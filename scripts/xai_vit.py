@@ -112,6 +112,18 @@ def select_samples(predictions_path: str | Path, threshold: float, samples_per_g
     return pd.concat(selected, ignore_index=True)
 
 
+def confusion_group(label: int, pred_label: int) -> str:
+    if label == 1 and pred_label == 1:
+        return "TP"
+    if label == 0 and pred_label == 0:
+        return "TN"
+    if label == 0 and pred_label == 1:
+        return "FP"
+    if label == 1 and pred_label == 0:
+        return "FN"
+    return "OTHER"
+
+
 def normalize_map(values):
     values = np.asarray(values, dtype=np.float32)
     v_min = float(values.min())
@@ -355,7 +367,7 @@ def main():
         prob = float(predict_prob(model, tensor, device)[0])
         pred_label = int(prob >= args.threshold)
         label = int(row["label"])
-        group = row["group"]
+        group = confusion_group(label, pred_label)
         prefix = f"{idx:02d}_{group}_{image_id[:10]}"
         metadata = f"true={label} predicted={pred_label} prob_cancer={prob:.4f} threshold={args.threshold:.2f}"
 
