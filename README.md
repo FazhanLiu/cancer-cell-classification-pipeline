@@ -50,6 +50,14 @@ Train ViT-Small:
 python scripts/train.py --config configs/vit.yaml
 ```
 
+Fine-tune ViT-Small with hard example mining and stronger augmentation:
+
+```powershell
+python scripts/train_vit_hard_mining.py --config configs/vit.yaml --base-checkpoint outputs/vit_small/best.pt --output-run-name vit_small_hard_mining --threshold 0.36 --epochs 20
+```
+
+This script first runs the previous ViT checkpoint on the training split, finds hard examples where the model makes FP/FN mistakes, then fine-tunes from that checkpoint using stronger image augmentation and weighted sampling. It avoids using the test set for mining hard examples.
+
 Train CNN-GNN:
 
 ```powershell
