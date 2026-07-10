@@ -58,6 +58,14 @@ python scripts/train_vit_hard_mining.py --config configs/vit.yaml --base-checkpo
 
 This script first runs the previous ViT checkpoint on the training split, finds hard examples where the model makes FP/FN mistakes, then fine-tunes from that checkpoint using stronger image augmentation and weighted sampling. It avoids using the test set for mining hard examples.
 
+Train ViT-Small with focal loss:
+
+```powershell
+python scripts/train_vit_focal_loss.py --config configs/vit.yaml --output-run-name vit_small_focal_loss --gamma 2.0 --alpha-negative 0.5 --alpha-positive 0.5 --label-smoothing 0.0
+```
+
+Focal loss focuses training on hard samples that the model still finds difficult, which is useful when FP/FN errors remain high after standard cross-entropy training. Increase `--alpha-negative` to penalize FP more, or increase `--alpha-positive` to penalize FN more.
+
 Train CNN-GNN:
 
 ```powershell
