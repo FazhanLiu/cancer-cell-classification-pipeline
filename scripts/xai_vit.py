@@ -38,6 +38,9 @@ def parse_args():
     parser.add_argument("--grid-size", type=int, default=7)
     parser.add_argument("--occlusion-patch", type=int, default=32)
     parser.add_argument("--occlusion-stride", type=int, default=16)
+    parser.add_argument("--attention-weight", type=float, default=0.5)
+    parser.add_argument("--lime-weight", type=float, default=0.3)
+    parser.add_argument("--occlusion-weight", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -131,6 +134,21 @@ def normalize_map(values):
     if math.isclose(v_min, v_max):
         return np.zeros_like(values)
     return (values - v_min) / (v_max - v_min)
+
+
+def weighted_final_score(attention_map, lime_map, occlusion_map, attention_weight=0.5, lime_weight=0.3, occlusion_weight=0.2):
+    total_weight = attention_weight + lime_weight + occlusion_weight
+    if total_weight <= 0:
+        raise ValueError("At least one XAI fusion weight must be positive.")
+    attention = normalize_map(attention_map)
+    lime = normalize_map(lime_map)
+    occlusion = normalize_map(occlusion_map)
+    fused = (
+        attention_weight * attention
+        + lime_weight * lime
+        + occlusion_weight * occlusion
+    ) / total_weight
+    return normalize_map(fused)
 
 
 def overlay_heatmap(image, heatmap, alpha=0.42, cmap="jet"):
@@ -312,11 +330,16 @@ def attention_region_summary(heatmap, grid_size=3):
     return sorted(regions, key=lambda item: item["score"], reverse=True)
 
 
+def high_score_area_ratio(heatmap, threshold=0.7):
+    heatmap = normalize_map(heatmap)
+    return float((heatmap >= threshold).mean())
+
+
 def save_summary_grid(records, output_path):
     if not records:
         return
     rows = len(records)
-    fig, axes = plt.subplots(rows, 4, figsize=(14, 3.4 * rows))
+    fig, axes = plt.subplots(rows, 5, figsize=(17, 3.4 * rows))
     if rows == 1:
         axes = axes[None, :]
     for row_idx, record in enumerate(records):
@@ -328,7 +351,9 @@ def save_summary_grid(records, output_path):
         axes[row_idx, 2].set_title("Grid LIME")
         axes[row_idx, 3].imshow(overlay_heatmap(record["image"], record["occlusion"]))
         axes[row_idx, 3].set_title("Occlusion")
-        for col in range(4):
+        axes[row_idx, 4].imshow(overlay_heatmap(record["image"], record["final_score"]))
+        axes[row_idx, 4].set_title("Final Score")
+        for col in range(5):
             axes[row_idx, col].axis("off")
         axes[row_idx, 0].set_ylabel(
             f"true={record['label']} pred={record['pred_label']}\nprob={record['prob']:.3f}",
@@ -351,8 +376,9 @@ def main():
     attention_dir = output_dir / "attention_rollout"
     lime_dir = output_dir / "lime"
     occlusion_dir = output_dir / "occlusion"
+    final_score_dir = output_dir / "final_score"
     summary_dir = output_dir / "summary"
-    for directory in [attention_dir, lime_dir, occlusion_dir, summary_dir]:
+    for directory in [attention_dir, lime_dir, occlusion_dir, final_score_dir, summary_dir]:
         directory.mkdir(parents=True, exist_ok=True)
 
     selected = select_samples(args.predictions, args.threshold, args.samples_per_group, args.seed)
@@ -389,12 +415,26 @@ def main():
             patch_size=args.occlusion_patch,
             stride=args.occlusion_stride,
         )
+        final_score_map = weighted_final_score(
+            attention_map,
+            lime_map,
+            occlusion_map,
+            attention_weight=args.attention_weight,
+            lime_weight=args.lime_weight,
+            occlusion_weight=args.occlusion_weight,
+        )
 
         save_heatmap_triplet(image, attention_map, attention_dir / f"{prefix}_attention_rollout.png", "Attention Rollout", metadata)
         save_heatmap_triplet(image, lime_map, lime_dir / f"{prefix}_lime.png", "Grid LIME", metadata)
         save_heatmap_triplet(image, occlusion_map, occlusion_dir / f"{prefix}_occlusion.png", "Occlusion Sensitivity", metadata)
+        fusion_metadata = (
+            f"{metadata} | final_score={args.attention_weight:.2f}*attention"
+            f"+{args.lime_weight:.2f}*lime+{args.occlusion_weight:.2f}*occlusion"
+        )
+        save_heatmap_triplet(image, final_score_map, final_score_dir / f"{prefix}_final_score.png", "Weighted Final Score", fusion_metadata)
 
         top_regions = attention_region_summary(attention_map)[:3]
+        top_final_regions = attention_region_summary(final_score_map)[:3]
         explanation_rows.append(
             {
                 "id": image_id,
@@ -403,7 +443,12 @@ def main():
                 "pred_label": pred_label,
                 "prob_cancer": prob,
                 "threshold": args.threshold,
+                "attention_weight": args.attention_weight,
+                "lime_weight": args.lime_weight,
+                "occlusion_weight": args.occlusion_weight,
                 "top_attention_regions": "; ".join(f"{r['region']}={r['score']:.3f}" for r in top_regions),
+                "top_final_score_regions": "; ".join(f"{r['region']}={r['score']:.3f}" for r in top_final_regions),
+                "final_score_area_ratio_0_7": high_score_area_ratio(final_score_map, threshold=0.7),
             }
         )
         records.append(
@@ -412,6 +457,7 @@ def main():
                 "attention": attention_map,
                 "lime": lime_map,
                 "occlusion": occlusion_map,
+                "final_score": final_score_map,
                 "group": group,
                 "label": label,
                 "pred_label": pred_label,

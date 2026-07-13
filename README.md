@@ -84,6 +84,14 @@ Generate ViT XAI visualizations:
 python scripts/xai_vit.py --config configs/vit.yaml --checkpoint outputs/vit_small/best.pt --predictions outputs/vit_small/test_predictions.csv --output outputs/vit_small/xai --threshold 0.36
 ```
 
+Generate XAI visualizations with the focal-loss ViT and weighted final score:
+
+```powershell
+python scripts/xai_vit.py --config configs/vit.yaml --checkpoint E:\cancer_cell_classification\model_outputs\vit_small_focal_loss\best.pt --predictions E:\cancer_cell_classification\model_outputs\vit_small_focal_loss\test_predictions.csv --output E:\cancer_cell_classification\model_outputs\vit_small_focal_loss\xai --threshold 0.5 --attention-weight 0.5 --lime-weight 0.3 --occlusion-weight 0.2
+```
+
+The final XAI score is computed as `0.5 * Attention Rollout + 0.3 * Grid LIME + 0.2 * Occlusion Sensitivity`.
+
 Generate human-readable LLM explanations from the XAI output:
 
 ```powershell
