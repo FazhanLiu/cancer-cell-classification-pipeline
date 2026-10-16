@@ -1,10 +1,14 @@
-numpy
-pandas
-Pillow
-PyYAML
-scikit-learn
-matplotlib
-timm
-torch
-torchvision
-tqdm
+# Direct dependency reference environment. Install the appropriate PyTorch build first.
+numpy==1.26.4
+pandas==2.2.3
+Pillow==11.2.1
+PyYAML==6.0.2
+scikit-learn==1.7.2
+matplotlib==3.10.1
+timm==1.0.22
+torch==2.7.0
+torchvision==0.22.0
+tqdm==4.67.1
+python-dotenv==1.0.1
+Flask==3.1.0
+Werkzeug==3.1.3

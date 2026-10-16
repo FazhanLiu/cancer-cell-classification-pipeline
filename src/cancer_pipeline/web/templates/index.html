@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="local-token" content="{{ token }}">
+  <title>PathScope · 病理图像辅助分析</title>
+  <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="PathScope 首页"><img src="/assets/mark.svg" alt=""><span>PathScope<small>病理图像辅助分析</small></span></a>
+    <div class="workspace-label">LOCAL WORKSPACE <span>本机</span></div>
+    <button id="new-case" class="nav-active"><span class="nav-symbol">▦</span> 病例工作台 <span class="plus">＋</span></button>
+    <div class="sidebar-heading">最近病例 <span id="history-count">0</span></div>
+    <nav id="history-list" aria-label="本机病例历史"><p class="history-empty">还没有病例<br>上传第一组病理图像开始。</p></nav>
+    <div class="sidebar-bottom"><span class="status-dot"></span><div>仅在本机保存<small>图像留在本机，摘要交由 DeepSeek 整理。</small></div></div>
+  </aside>
+
+  <main>
+    <header class="topbar"><div class="breadcrumb">工作区 <span>/</span> <strong>病例分析</strong></div><div class="header-actions"><span class="local-badge"><i></i> 本地运行</span><button id="open-settings" class="button subtle">运行配置 <span>↗</span></button></div></header>
+    <div class="page">
+      <section class="page-heading"><div><div class="eyebrow">PATHOLOGY REVIEW WORKSPACE</div><h1 id="page-title">让每一张图像，都有可追溯的解释。</h1><p id="page-subtitle">一个病例，一组病理小图。从模型分类到区域解释，再到中文分析报告。</p></div><span class="research-badge">研究辅助 · 需医生复核</span></section>
+
+      <section id="readiness" class="readiness"><div class="readiness-icon">i</div><div><strong id="readiness-title">正在连接本机服务</strong><p id="readiness-description">读取模型和报告服务状态。</p></div><button id="readiness-settings" class="text-button">查看配置 →</button></section>
+
+      <section class="workflow" aria-label="分析流程"><div id="step-upload" class="workflow-step current"><span>01</span><div>上传病例图像<small>同一病例 · 多张 patch</small></div></div><div class="step-line"></div><div id="step-classify" class="workflow-step"><span>02</span><div>模型分类<small>逐图评分与二分类</small></div></div><div class="step-line"></div><div id="step-xai" class="workflow-step"><span>03</span><div>区域解释<small>三种方法 · 融合与分歧</small></div></div><div class="step-line"></div><div id="step-report" class="workflow-step"><span>04</span><div>病例报告<small>DeepSeek 中文汇总</small></div></div></section>
+
+      <section class="metrics" aria-label="当前病例统计"><article><span>病例图像</span><strong id="metric-total">0<small>张</small></strong><div class="metric-hint">一次最多 20 张</div></article><article><span>模型阳性</span><strong id="metric-positive">—</strong><div class="metric-hint">评分达到分类阈值</div></article><article><span>模型阴性</span><strong id="metric-negative">—</strong><div class="metric-hint">评分低于分类阈值</div></article><article><span>分析进度</span><strong id="metric-progress">—</strong><div id="metric-stage" class="metric-hint">等待上传</div></article></section>
+
+      <section id="upload-panel" class="panel upload-panel">
+        <div class="panel-heading"><div><h2>新建病例</h2><p>上传已裁剪的组织病理小图，同一批图片将整理为一份病例报告。</p></div><span class="quiet-tag">01 / 上传图像</span></div>
+        <label class="field-label" for="case-reference">病例备注 <span>可选 · 使用去标识化编号</span></label>
+        <input id="case-reference" class="text-input" maxlength="80" placeholder="例如：CASE-001">
+        <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="选择或拖入病理图片">
+          <svg width="54" height="54" viewBox="0 0 54 54" fill="none" aria-hidden="true"><rect x="7" y="11" width="33" height="33" rx="8" stroke="currentColor" stroke-width="1.7" opacity=".4"/><rect x="14" y="5" width="33" height="33" rx="8" fill="#EDF5F6" stroke="currentColor" stroke-width="1.7"/><path d="m20 29 7-8 6 5 5-6 4 6M34 14h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <h3>将病理图像拖放到这里</h3><p>或 <span class="choose-link">从电脑选择文件</span></p><small>PNG、JPG、TIFF、WebP · 每张 ≤ 10 MB · 最多 20 张</small>
+        </div>
+        <input id="file-input" type="file" accept=".png,.jpg,.jpeg,.tif,.tiff,.webp" multiple hidden>
+        <div id="pending-files" class="pending-files" aria-live="polite"></div>
+        <div class="upload-footer"><span id="selected-count">尚未选择图片</span><div><button id="clear-files" class="button subtle" disabled>清空</button><button id="save-draft" class="button outline" disabled>保存待分析</button><button id="upload-analyze" class="button primary" disabled>保存并开始分析 <span>→</span></button></div></div>
+      </section>
+
+      <section id="case-panel" hidden>
+        <div class="case-toolbar"><div><span id="case-status" class="pill">待分析</span><span id="case-created" class="muted"></span></div><div><button id="delete-case" class="button subtle danger">删除病例</button><button id="analyze-case" class="button primary">开始分析 →</button></div></div>
+        <div id="job-message" class="job-message" role="status"></div>
+        <div class="case-layout">
+          <section class="panel image-panel"><div class="panel-heading"><div><h2>图像与区域解释</h2><p>选择图像，查看分类结果及不同方法的关注区域。</p></div><span id="model-label" class="quiet-tag">ViT</span></div>
+            <div id="image-strip" class="image-strip" aria-label="病例图像列表"></div>
+            <div id="map-tabs" class="map-tabs" role="tablist" aria-label="解释方法"><button data-map="preview" class="active" role="tab">原图</button><button data-map="attention" role="tab">Attention</button><button data-map="lime" role="tab">LIME</button><button data-map="occlusion" role="tab">遮挡分析</button><button data-map="fusion" role="tab">融合图</button><button data-map="disagreement" role="tab">方法分歧</button></div>
+            <div class="image-viewer"><img id="main-image" alt="当前病理图像"><div id="viewer-caption"></div></div>
+            <div id="map-description" class="map-description">原始病理小图预览。</div>
+            <div class="classification-row"><div><span id="selected-name" class="image-name"></span><small id="selected-dimensions"></small></div><div id="prediction-badge" class="pill">等待分类</div></div>
+            <div id="prediction-detail" class="prediction-detail" hidden><div><span>癌症类别模型评分</span><strong id="selected-score"></strong></div><progress id="score-bar" max="1" value="0"></progress><p id="selected-threshold"></p></div>
+            <div id="selected-error" class="inline-error" hidden></div>
+          </section>
+          <aside class="panel evidence-panel"><div class="panel-heading"><div><h2>图像证据摘要</h2><p>辅助核查模型依据</p></div><span class="evidence-mark">◎</span></div><div id="regions-content" class="regions-content"><div class="empty-evidence">区域摘要会在解释完成后显示。</div></div><div class="evidence-note">颜色表示相对重要性，不代表病灶边界或癌症概率。阴性图片的解释仍针对癌症评分。</div></aside>
+        </div>
+
+        <section class="panel results-panel"><div class="panel-heading"><div><h2>逐图分类结果</h2><p>病例内图片分别判断，不合成为患者患癌概率。</p></div><a id="download-json" class="button outline" href="#">导出结果 JSON</a></div><div class="table-scroll"><table><thead><tr><th>图像编号 / 文件</th><th>模型结果</th><th>模型评分</th><th>阈值</th><th>处理状态</th></tr></thead><tbody id="results-table"></tbody></table></div></section>
+
+        <section class="panel report-panel"><div class="panel-heading"><div><div class="report-kicker">CASE SUMMARY</div><h2>病例分析报告 <span class="deepseek-label">DeepSeek</span></h2><p>基于逐图预测和解释证据生成，原始图像与文件名不发送至 DeepSeek。</p></div><div class="report-actions"><span id="report-status" class="pill">等待分析</span><a id="download-report" class="button outline" href="#" hidden>下载报告 ↓</a></div></div><div id="report-content" class="report-content empty-report"><span class="report-glyph">≡</span><h3>让结果形成一份清晰的病例摘要</h3><p>图像分析完成后，将自动生成中文报告。报告会标明方法分歧与需要复核的图像。</p></div></section>
+      </section>
+      <footer class="page-footer"><span>PathScope · 本机研究工作台</span><span>模型输出与区域解释供医生复核，不能替代病理诊断。</span></footer>
+    </div>
+  </main>
+
+  <dialog id="settings-dialog"><div class="dialog-heading"><div><div class="eyebrow">LOCAL CONFIGURATION</div><h2>连接模型与报告服务</h2></div><button id="close-settings" class="icon-button" aria-label="关闭">×</button></div><p>在项目根目录的 <code>.env</code> 中配置，保存后重启网站服务。Key 始终由本机后端读取。</p><div id="settings-state" class="settings-state"></div><pre>CANCER_MODEL_PATH=outputs/vit_small/&lt;训练目录&gt;/best.pt
+CANCER_DECISION_PATH=&lt;可选的 decision.json 路径&gt;
+CANCER_DEVICE=auto
+DEEPSEEK_API_KEY=&lt;你的真实 Key&gt;
+DEEPSEEK_MODEL=deepseek-flash</pre><h3>还没有分类模型？</h3><p>先准备病理训练数据，再训练 ViT。通用预训练权重不能直接替代病理二分类模型。</p><pre>python scripts/prepare_data.py --config configs/vit.yaml
+python scripts/train.py --config configs/vit.yaml</pre><p class="muted">未配置 decision.json 时使用阈值 0.5。当前支持已裁剪 patch，不支持 WSI、DICOM 或多页 TIFF。</p><button id="close-settings-bottom" class="button primary">知道了</button></dialog>
+  <div id="toast" class="toast" role="alert" hidden></div>
+</body>
+</html>

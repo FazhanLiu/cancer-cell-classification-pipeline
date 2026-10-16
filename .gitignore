@@ -5,3 +5,8 @@ outputs/
 data/
 .env
 logs/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.coverage

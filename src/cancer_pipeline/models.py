@@ -146,4 +146,4 @@ def create_model(name: str, num_classes: int = 2, pretrained: bool = True, **kwa
         return CNNTransformerHybrid(pretrained=pretrained, num_classes=num_classes, **kwargs)
     if name == "cnn_gnn":
         return CNNGNNHybrid(pretrained=pretrained, num_classes=num_classes, **kwargs)
-    return timm.create_model(name, pretrained=pretrained, num_classes=num_classes)
+    return timm.create_model(name, pretrained=pretrained, num_classes=num_classes, **kwargs)

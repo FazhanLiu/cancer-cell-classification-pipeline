@@ -19,8 +19,8 @@ def plot_history(history_csv: str | Path, output_dir: str | Path) -> None:
     plt.figure(figsize=(8, 5))
     if "train_loss" in history:
         plt.plot(history["epoch"], history["train_loss"], label="train loss")
-    if "val_loss" in history:
-        plt.plot(history["epoch"], history["val_loss"], label="val loss")
+    if "val_cross_entropy_unweighted" in history:
+        plt.plot(history["epoch"], history["val_cross_entropy_unweighted"], label="val unweighted CE")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.title("Training and Validation Loss")
@@ -45,7 +45,7 @@ def plot_history(history_csv: str | Path, output_dir: str | Path) -> None:
         plt.close()
 
 
-def plot_predictions(predictions_csv: str | Path, output_dir: str | Path, prefix: str = "test") -> None:
+def plot_predictions(predictions_csv: str | Path, output_dir: str | Path, prefix: str = "test", threshold: float | None = None) -> None:
     predictions_csv = Path(predictions_csv)
     output_dir = Path(output_dir)
     if not predictions_csv.exists():
@@ -55,11 +55,20 @@ def plot_predictions(predictions_csv: str | Path, output_dir: str | Path, prefix
     if predictions.empty:
         return
 
+    if threshold is None:
+        from cancer_pipeline.artifacts import read_json
+        metadata_path = Path(str(predictions_csv) + ".meta.json")
+        metadata = read_json(metadata_path) if metadata_path.exists() else {}
+        threshold = metadata.get("decision", {}).get("threshold", 0.5)
+
     y_true = predictions["label"].to_numpy()
     y_prob = predictions["prob_cancer"].to_numpy()
-    y_pred = (y_prob >= 0.5).astype(int)
+    from cancer_pipeline.metrics import validate_predictions, validate_threshold
+    validate_threshold(threshold)
+    validate_predictions(y_true, y_prob)
+    y_pred = (y_prob >= threshold).astype(int)
 
-    cm = confusion_matrix(y_true, y_pred)
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
     disp = ConfusionMatrixDisplay(cm, display_labels=["non-cancer", "cancer"])
     disp.plot(cmap="Blues", values_format="d")
     plt.title(f"{prefix.title()} Confusion Matrix")
@@ -67,6 +76,8 @@ def plot_predictions(predictions_csv: str | Path, output_dir: str | Path, prefix
     plt.savefig(output_dir / f"{prefix}_confusion_matrix.png", dpi=180)
     plt.close()
 
+    if len(np.unique(y_true)) < 2:
+        return
     fpr, tpr, _ = roc_curve(y_true, y_prob)
     RocCurveDisplay(fpr=fpr, tpr=tpr).plot()
     plt.title(f"{prefix.title()} ROC Curve")

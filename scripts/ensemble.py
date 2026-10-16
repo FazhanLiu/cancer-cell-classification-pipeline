@@ -1,88 +1,80 @@
+"""ID-aligned probability ensemble; independent of XAI heatmap fusion."""
 import argparse
+import gc
 import sys
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
-import torch
-from tqdm import tqdm
+import yaml
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
-
-from cancer_pipeline.config import ensure_dir, load_config
-from cancer_pipeline.data import build_transforms, make_splits, HistopathologyDataset
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+from cancer_pipeline.artifacts import assert_source, checkpoint_model, file_hash, load_decision, new_run, object_hash, save_json, write_predictions
+from cancer_pipeline.data import make_loaders
+from cancer_pipeline.engine import predict
 from cancer_pipeline.metrics import classification_metrics
-from cancer_pipeline.models import create_model
-from cancer_pipeline.utils import get_device, save_json
-
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True)
-    return parser.parse_args()
-
-
-@torch.no_grad()
-def predict_probs(model, loader, device):
-    model.eval()
-    probs = []
-    for images, _, _ in tqdm(loader, desc="ensemble eval", leave=False):
-        images = images.to(device, non_blocking=True)
-        logits = model(images)
-        probs.append(logits.softmax(dim=1)[:, 1].cpu().numpy())
-    return np.concatenate(probs)
+from cancer_pipeline.plots import plot_predictions
+from cancer_pipeline.utils import configure_logging, get_device
 
 
 def main():
-    args = parse_args()
-    config = load_config(args.config)
-    ds_cfg = config["dataset"]
-    _, _, test_df = make_splits(ds_cfg["root"], ds_cfg["val_size"], ds_cfg["test_size"], seed=42)
-    dataset = HistopathologyDataset(
-        test_df,
-        Path(ds_cfg["root"]) / "train",
-        build_transforms(int(ds_cfg["image_size"]), train=False),
-    )
-    loader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=16,
-        shuffle=False,
-        num_workers=int(ds_cfg.get("num_workers", 4)),
-        pin_memory=True,
-    )
-    device = get_device()
-    weighted_probs = []
-    weights = []
+    parser = argparse.ArgumentParser(description='Ensemble models on a fixed manifest, using each model preprocessing.')
+    parser.add_argument('--config', required=True)
+    parser.add_argument('--split', choices=['val', 'test'], default='val')
+    parser.add_argument('--decision')
+    parser.add_argument('--device', default='auto')
+    args = parser.parse_args()
+    configure_logging()
+    with open(args.config, encoding='utf-8') as stream:
+        ensemble = yaml.safe_load(stream)
+    items = ensemble['models']
+    weights = np.asarray([float(item.get('weight', 1)) for item in items])
+    if not len(items) or not np.isfinite(weights).all() or (weights < 0).any() or not np.isfinite(weights.sum()) or weights.sum() <= 0:
+        raise ValueError('Ensemble weights must be finite, nonnegative, and sum to a positive number.')
+    device = get_device(args.device)
+    reference, probability, sources, pp = None, None, [], []
+    manifest_hash = None
+    for item, weight in zip(items, weights):
+        model, config, checkpoint = checkpoint_model(item['checkpoint'], device)
+        if item.get('name', config['model']['name']) != config['model']['name']:
+            raise ValueError('Ensemble model name differs from checkpoint.')
+        for key in ('root', 'manifest'):
+            if key in ensemble.get('dataset', {}):
+                config['dataset'][key] = ensemble['dataset'][key]
+        loaders, frames, provenance = make_loaders(config, splits=(args.split,))
+        status = assert_source(checkpoint, provenance)
+        if status != 'verified':
+            raise ValueError('Unverified historical sources are excluded from reproducible ensembles.')
+        if manifest_hash is not None and manifest_hash != provenance['manifest_hash']:
+            raise ValueError('Ensemble models must share the same split manifest.')
+        manifest_hash = provenance['manifest_hash']
+        _, frame = predict(model, loaders[args.split], device, config['train'].get('amp', True))
+        frame = frame.set_index('id').sort_index()
+        if reference is None:
+            reference = frame[['label']]
+            probability = np.zeros(len(frame))
+        if not frame.index.equals(reference.index) or not frame.label.equals(reference.label):
+            raise ValueError('Ensemble IDs or labels are not aligned.')
+        probability += weight * frame.prob_cancer.to_numpy()
+        sources.append({'checkpoint_hash': file_hash(item['checkpoint']), 'weight': float(weight)})
+        pp.append(config['preprocessing'])
+        del model, checkpoint, loaders
+        gc.collect()
+        if device.type == 'cuda':
+            import torch
+            torch.cuda.empty_cache()
+    metadata = {'checkpoint_hash': object_hash(sources), 'manifest_hash': manifest_hash,
+                'labels_hash': provenance['labels_hash'], 'preprocessing': {'ensemble': pp},
+                'split': args.split, 'source_status': 'verified', 'members': sources}
+    decision = load_decision(args.decision, {k: metadata[k] for k in ('checkpoint_hash', 'manifest_hash', 'preprocessing')})
+    result = reference.assign(prob_cancer=probability / weights.sum()).reset_index()
+    metrics = classification_metrics(result.label, result.prob_cancer, decision['threshold'])
+    output = new_run({**ensemble, 'output_dir': ensemble.get('output_dir', 'outputs'),
+                      'run_name': ensemble.get('run_name', 'ensemble')}, f'ensemble-{args.split}')
+    path = output / f'{args.split}_predictions.csv'
+    write_predictions(result, path, {**metadata, 'decision': decision})
+    save_json({'metrics': metrics, 'decision': decision, 'provenance': metadata}, output / 'metrics.json')
+    plot_predictions(path, output, args.split, threshold=decision['threshold'])
+    print(output)
 
-    for item in config["models"]:
-        item = dict(item)
-        weight = float(item.pop("weight", 1.0))
-        checkpoint_path = item.pop("checkpoint")
-        model_name = item.pop("name")
-        checkpoint = torch.load(checkpoint_path, map_location=device)
-        model_config = checkpoint.get("config", {}).get("model", {})
-        model_kwargs = {k: v for k, v in model_config.items() if k != "name"}
-        if not model_kwargs:
-            model_kwargs = {"num_classes": 2, "pretrained": False}
-        else:
-            model_kwargs["pretrained"] = False
-        model = create_model(model_name, **model_kwargs).to(device)
-        model.load_state_dict(checkpoint["model"])
-        weighted_probs.append(predict_probs(model, loader, device) * weight)
-        weights.append(weight)
-
-    final_prob = np.sum(weighted_probs, axis=0) / np.sum(weights)
-    metrics = classification_metrics(test_df["label"].values, final_prob)
-    output_dir = ensure_dir(Path(config.get("output_dir", "outputs")) / config["run_name"])
-    pd.DataFrame({"id": test_df["id"].values, "label": test_df["label"].values, "prob_cancer": final_prob}).to_csv(
-        output_dir / "ensemble_predictions.csv",
-        index=False,
-    )
-    save_json(metrics, output_dir / "metrics.json")
-    print(metrics)
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
-

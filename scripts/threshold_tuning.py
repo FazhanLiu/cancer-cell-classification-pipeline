@@ -1,75 +1,63 @@
 import argparse
+import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, fbeta_score, precision_score, recall_score, roc_auc_score
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+from cancer_pipeline.artifacts import new_run, read_predictions, save_json
+from cancer_pipeline.metrics import classification_metrics
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--predictions", required=True, help="CSV with label and prob_cancer columns.")
-    parser.add_argument("--output", default=None, help="Where to save threshold tuning results.")
-    parser.add_argument("--target-fn", type=int, default=249, help="Maximum false negatives to beat or match.")
-    parser.add_argument("--start", type=float, default=0.05)
-    parser.add_argument("--stop", type=float, default=0.95)
-    parser.add_argument("--step", type=float, default=0.01)
-    return parser.parse_args()
+def tune(predictions, metadata, start=0.05, stop=0.95, step=0.01, objective='f1', target_recall=None):
+    if metadata.get('split') != 'val' or metadata.get('source_status') != 'verified':
+        raise ValueError('Threshold selection requires verified validation predictions.')
+    if not all(k in metadata for k in ('checkpoint_hash', 'manifest_hash', 'preprocessing', 'csv_hash')):
+        raise ValueError('Incomplete validation provenance.')
+    if not np.isfinite([start, stop, step]).all() or not 0 <= start <= stop <= 1 or step <= 0 or (stop - start) / step > 10000:
+        raise ValueError('Invalid search range/step (maximum 10001 candidates).')
+    if objective not in ('f1', 'recall_precision'):
+        raise ValueError('Unknown selection objective.')
+    if objective == 'recall_precision' and (target_recall is None or not np.isfinite(target_recall) or not 0 <= target_recall <= 1):
+        raise ValueError('Recall objective needs --target-recall in [0,1].')
+    if predictions.label.nunique() != 2:
+        raise ValueError('Threshold selection requires both classes.')
+    rows = []
+    thresholds = np.arange(start, stop + step * 1e-8, step)
+    for threshold in thresholds:
+        m = classification_metrics(predictions.label, predictions.prob_cancer, min(float(threshold), 1.0))
+        cm = m.pop('confusion_matrix')
+        rows.append({**m, 'tn': cm[0][0], 'fp': cm[0][1], 'fn': cm[1][0], 'tp': cm[1][1]})
+    results = pd.DataFrame(rows)
+    feasible = results if objective == 'f1' else results[results.recall >= target_recall]
+    if feasible.empty:
+        raise ValueError('No feasible threshold; no decision artifact was created.')
+    score = 'f1' if objective == 'f1' else 'precision'
+    winner = feasible.sort_values([score, 'threshold'], ascending=[False, False]).iloc[0]
+    decision = {'schema_version': 1, 'threshold': float(winner.threshold), 'objective': objective,
+                'target_recall': target_recall, 'split': 'val',
+                **{k: metadata[k] for k in ('checkpoint_hash', 'manifest_hash', 'preprocessing', 'csv_hash')},
+                'search': {'start': start, 'stop': stop, 'step': step}}
+    return results, decision
 
 
 def main():
-    args = parse_args()
-    predictions_path = Path(args.predictions)
-    df = pd.read_csv(predictions_path)
-    y_true = df["label"].astype(int)
-    y_prob = df["prob_cancer"].astype(float)
-    auc = roc_auc_score(y_true, y_prob)
+    parser = argparse.ArgumentParser(description='Select a threshold using verified validation predictions only.')
+    parser.add_argument('--predictions', required=True)
+    parser.add_argument('--output', default='outputs/threshold_tuning', help='Base directory; a unique run directory is created.')
+    parser.add_argument('--start', type=float, default=0.05)
+    parser.add_argument('--stop', type=float, default=0.95)
+    parser.add_argument('--step', type=float, default=0.01)
+    parser.add_argument('--objective', choices=['f1', 'recall_precision'], default='f1')
+    parser.add_argument('--target-recall', type=float)
+    args = parser.parse_args()
+    frame, metadata = read_predictions(args.predictions)
+    results, decision = tune(frame, metadata, args.start, args.stop, args.step, args.objective, args.target_recall)
+    output = new_run({'output_dir': args.output, 'run_name': 'selection', **vars(args)}, 'threshold')
+    results.to_csv(output / 'threshold_tuning.csv', index=False)
+    save_json(decision, output / 'decision.json')
+    print(output / 'decision.json')
 
-    rows = []
-    threshold = args.start
-    while threshold <= args.stop + 1e-9:
-        y_pred = (y_prob >= threshold).astype(int)
-        cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
-        tn, fp, fn, tp = cm.ravel()
-        rows.append(
-            {
-                "threshold": round(threshold, 4),
-                "accuracy": accuracy_score(y_true, y_pred),
-                "precision": precision_score(y_true, y_pred, zero_division=0),
-                "recall": recall_score(y_true, y_pred, zero_division=0),
-                "f1": f1_score(y_true, y_pred, zero_division=0),
-                "f2": fbeta_score(y_true, y_pred, beta=2, zero_division=0),
-                "auc": auc,
-                "tn": int(tn),
-                "fp": int(fp),
-                "fn": int(fn),
-                "tp": int(tp),
-            }
-        )
-        threshold += args.step
-
-    results = pd.DataFrame(rows)
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        output_path = predictions_path.with_name("threshold_tuning.csv")
-    results.to_csv(output_path, index=False)
-
-    feasible = results[results["fn"] < args.target_fn].copy()
-    print(f"Saved threshold tuning results to: {output_path}")
-    print()
-    print("Default threshold 0.50:")
-    print(results.iloc[(results["threshold"] - 0.5).abs().argsort()[:1]].to_string(index=False))
-    print()
-    if feasible.empty:
-        print(f"No threshold found with FN < {args.target_fn}. Best by minimum FN:")
-        print(results.sort_values(["fn", "f1"], ascending=[True, False]).head(10).to_string(index=False))
-    else:
-        print(f"Best thresholds with FN < {args.target_fn}, sorted by F1:")
-        print(feasible.sort_values(["f1", "f2", "recall"], ascending=[False, False, False]).head(10).to_string(index=False))
-        print()
-        print("Best thresholds with FN < target, sorted by F2:")
-        print(feasible.sort_values(["f2", "f1", "recall"], ascending=[False, False, False]).head(10).to_string(index=False))
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

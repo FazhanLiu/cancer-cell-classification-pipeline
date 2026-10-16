@@ -1,11 +1,11 @@
 run_name: vit_small
 seed: 42
 dataset:
-  root: E:\cancer_cell_classification\histopathologic-cancer-detection
+  root: data/histopathologic-cancer-detection
   image_size: 224
   val_size: 0.15
   test_size: 0.15
-  num_workers: 4
+  num_workers: 0
 model:
   name: vit_small_patch16_224
   pretrained: true
@@ -20,4 +20,6 @@ train:
   amp: true
   early_stopping_patience: 10
   class_weight: true
-output_dir: E:\cancer_cell_classification\model_outputs
+output_dir: outputs
+device: auto
+deterministic: true
