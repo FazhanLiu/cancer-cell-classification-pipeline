@@ -287,7 +287,8 @@ def create_app(settings=None, runtime=None, llm_caller=None):
 
     @app.get('/')
     def index():
-        return render_template('index.html', token=app.config['LOCAL_TOKEN'], report_model=app.config['LLM_MODEL'])
+        return render_template('index.html', token=app.config['LOCAL_TOKEN'], report_model=app.config['LLM_MODEL'],
+                               deployment_environment=app.config['DEPLOYMENT_ENV'])
 
     @app.get('/healthz')
     def health():
@@ -301,7 +302,7 @@ def create_app(settings=None, runtime=None, llm_caller=None):
         return jsonify(model_ready=runtime is not None, model=runtime.info() if runtime else None,
                        model_error=model_error, llm_ready=report_settings()['ready'],
                        llm_model=app.config['LLM_MODEL'], llm_provider=app.config['LLM_PROVIDER'], max_images=20, max_file_mb=10,
-                       local_only=True)
+                       local_only=not bool(app.config['PROXY_TOKEN']))
 
     @app.get('/api/cases')
     def list_cases():

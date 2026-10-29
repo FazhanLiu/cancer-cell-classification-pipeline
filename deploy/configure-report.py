@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from urllib.parse import urlsplit
 
 
 def main():
@@ -25,8 +26,11 @@ def main():
     for name in ('model', 'api_key'):
         if not isinstance(config.get(name), str) or not config[name].strip():
             raise SystemExit(f'Missing {name}')
-    if provider == 'compatible' and not str(config.get('base_url', '')).startswith('https://'):
-        raise SystemExit('An HTTPS API base_url is required')
+    if provider == 'compatible':
+        endpoint = urlsplit(str(config.get('base_url', '')))
+        if (endpoint.scheme != 'https' or not endpoint.hostname or endpoint.username or endpoint.password
+                or endpoint.query or endpoint.fragment):
+            raise SystemExit('An HTTPS API base_url without credentials or query parameters is required')
     values = {'LLM_PROVIDER': provider, 'LLM_MODEL': config['model'],
               'LLM_BASE_URL': config.get('base_url', ''),
               'LLM_API_KEY' if provider == 'compatible' else 'DEEPSEEK_API_KEY': config['api_key']}

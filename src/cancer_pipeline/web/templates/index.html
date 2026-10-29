@@ -12,7 +12,7 @@
 <body>
   <aside class="sidebar">
     <a class="brand" href="/" aria-label="PathScope 首页"><img src="/assets/mark.svg" alt=""><span>PathScope<small>病理图像辅助分析</small></span></a>
-    <div class="workspace-label">LOCAL WORKSPACE <span>本机</span></div>
+    <div class="workspace-label">{{ 'DEVELOPMENT' if deployment_environment == 'dev' else 'PRODUCTION' if deployment_environment == 'prod' else 'LOCAL WORKSPACE' }} <span>{{ '测试环境' if deployment_environment == 'dev' else '正式环境' if deployment_environment == 'prod' else '本机' }}</span></div>
     <button id="new-case" class="nav-active"><span class="nav-symbol">▦</span> 病例工作台 <span class="plus">＋</span></button>
     <div class="sidebar-heading">最近病例 <span id="history-count">0</span></div>
     <nav id="history-list" aria-label="本机病例历史"><p class="history-empty">还没有病例<br>上传第一组病理图像开始。</p></nav>
