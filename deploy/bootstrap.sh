@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run once as root on Ubuntu 22.04/24.04. No container images are used.
 set -Eeuo pipefail
+export DEBIAN_FRONTEND=noninteractive
 [[ $EUID == 0 ]] || { echo 'Run with sudo' >&2; exit 77; }
 source /etc/os-release
 [[ "$ID" == ubuntu ]] || { echo 'This bootstrap supports Ubuntu only' >&2; exit 64; }
@@ -89,8 +90,12 @@ server {
 HTTP
         fi
     else
-        : "${CERTBOT_EMAIL:?Set CERTBOT_EMAIL for certificate registration}"
-        certbot certonly --non-interactive --agree-tos --email "$CERTBOT_EMAIL" --webroot -w /var/www/cancer-acme -d "$domain"
+        if [[ -n ${CERTBOT_EMAIL:-} ]]; then
+            registration=(--email "$CERTBOT_EMAIL")
+        else
+            registration=(--register-unsafely-without-email)
+        fi
+        certbot certonly --non-interactive --agree-tos "${registration[@]}" --webroot -w /var/www/cancer-acme -d "$domain"
         [[ -s "/etc/cancer/$environment.htpasswd" ]] || { echo "Create /etc/cancer/$environment.htpasswd first with htpasswd" >&2; exit 65; }
         proxy_token=$(sed -n 's/^CANCER_PROXY_TOKEN=//p' "/etc/cancer/$environment.env")
         [[ "$proxy_token" =~ ^[a-f0-9]{64}$ ]] || exit 65

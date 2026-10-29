@@ -75,6 +75,7 @@ sudo CERTBOT_EMAIL=你的证书邮箱 bash deploy/bootstrap.sh tls
 ```
 
 脚本申请证书后配置 HTTPS、HTTP 跳转与登录保护。Certbot 续期成功后自动校验并 reload Nginx。
+未提供 CERTBOT_EMAIL 时使用无邮箱注册，依靠服务器定时续期；不接收证书邮箱通知。
 不要在同一时刻对现有站点重复配置相同域名。
 
 ### 模型与服务密钥
