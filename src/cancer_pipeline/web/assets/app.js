@@ -36,9 +36,9 @@ function renderStatus() {
   const s = state.status;
   if (!s) return;
   $('readiness').classList.toggle('ready', s.model_ready && s.llm_ready);
-  $('readiness-title').textContent = !s.model_ready ? '分类模型尚未就绪，可以先保存病例图像。' : !s.llm_ready ? '分类与区域解释已就绪，DeepSeek 尚未配置。' : '模型与报告服务已就绪';
-  $('readiness-description').textContent = s.model_error || (!s.model_ready ? '配置训练好的 ViT 权重后重启服务，即可启用真实分析。不会使用随机模型生成结果。' : !s.llm_ready ? '图像可先分析；填写 .env 中的 DeepSeek Key 并重启后，可继续生成报告。' : `${s.model.name} · 阈值 ${s.model.threshold.toFixed(3)} · ${s.model.device.toUpperCase()} · ${s.llm_model}`);
-  $('settings-state').replaceChildren(element('span', `pill ${s.model_ready?'complete':'partial'}`, s.model_ready?'ViT 模型已加载':'模型未加载'), element('span', `pill ${s.llm_ready?'complete':'partial'}`, s.llm_ready?'DeepSeek Key 已配置':'DeepSeek Key 未配置'));
+  $('readiness-title').textContent = !s.model_ready ? '分类模型尚未就绪，可以先保存病例图像。' : !s.llm_ready ? '分类与区域解释已就绪，报告 API 尚未配置。' : '模型与报告服务已就绪';
+  $('readiness-description').textContent = s.model_error || (!s.model_ready ? '配置训练好的 ViT 权重后重启服务，即可启用真实分析。不会使用随机模型生成结果。' : !s.llm_ready ? '图像可先分析；管理员连接报告 API 后，可继续生成报告。' : `${s.model.name} · 阈值 ${s.model.threshold.toFixed(3)} · ${s.model.device.toUpperCase()} · ${s.llm_model}`);
+  $('settings-state').replaceChildren(element('span', `pill ${s.model_ready?'complete':'partial'}`, s.model_ready?'ViT 模型已加载':'模型未加载'), element('span', `pill ${s.llm_ready?'complete':'partial'}`, s.llm_ready?'报告 API 已配置':'报告 API 未配置'));
   renderPending();
 }
 async function loadHistory() {
@@ -214,7 +214,7 @@ function renderReport() {
   if(r.status==='complete'){$('report-content').textContent=r.text;return;}
   $('report-content').classList.add('empty-report');
   const title=r.status==='failed'?'报告暂未生成':r.status==='generating'?'正在将图像证据整理为中文报告':'让结果形成一份清晰的病例摘要';
-  const note=r.status==='failed'?(r.error||'可点击继续分析重试。'):r.status==='generating'?'DeepSeek 仅接收去标识化的预测与区域摘要，请稍候。':'图像解释完成后自动生成中文病例报告，包含逐图结果、方法分歧与复核提示。';
+  const note=r.status==='failed'?(r.error||'可点击继续分析重试。'):r.status==='generating'?'报告模型仅接收去标识化的预测与区域摘要，请稍候。':'图像解释完成后自动生成中文病例报告，包含逐图结果、方法分歧与复核提示。';
   $('report-content').append(element('span','report-glyph','≡'),element('h3','',title),element('p','',note));
 }
 $('dropzone').addEventListener('click',()=>$('file-input').click());

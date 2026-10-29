@@ -5,6 +5,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 from pathlib import Path
 
 from cancer_pipeline.artifacts import object_hash, read_json, save_json
@@ -156,7 +157,50 @@ def call_huggingface(prompt, model, timeout):
     return json.dumps(response, ensure_ascii=False)
 
 
-def call_llm(provider, prompt, model, timeout):
+def report_settings():
+    """Resolve hosted report settings without exposing credentials."""
+    provider = os.environ.get('LLM_PROVIDER', '').strip() or 'deepseek'
+    if provider not in {'deepseek', 'compatible'}:
+        raise ValueError('LLM_PROVIDER must be deepseek or compatible')
+    model = os.environ.get('LLM_MODEL', '').strip()
+    if provider == 'deepseek':
+        model = model or os.environ.get('DEEPSEEK_MODEL', 'deepseek-flash')
+        ready = bool(os.environ.get('DEEPSEEK_API_KEY', '').strip())
+    else:
+        ready = bool(model and os.environ.get('LLM_API_KEY', '').strip()
+                     and os.environ.get('LLM_BASE_URL', '').strip())
+    return {'provider': provider, 'model': model, 'ready': ready}
+
+
+def compatible_endpoint():
+    base = os.environ.get('LLM_BASE_URL', '').strip().rstrip('/')
+    parts = urlsplit(base)
+    if (parts.scheme != 'https' or not parts.hostname or parts.username or parts.password
+            or parts.query or parts.fragment):
+        raise ValueError('LLM_BASE_URL must be an HTTPS API base URL without credentials or query parameters')
+    return base if base.endswith('/chat/completions') else base + '/chat/completions'
+
+
+def call_compatible(prompt, model, timeout, max_tokens=1024):
+    """One configurable Chat Completions adapter for compatible API vendors."""
+    key = os.environ.get('LLM_API_KEY', '').strip()
+    if not key or not model:
+        raise RuntimeError('LLM_API_KEY and LLM_MODEL are required.')
+    response = request_json(compatible_endpoint(),
+        {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'},
+        {'model': model, 'messages': [{'role': 'system', 'content': DEFAULT_SYSTEM_PROMPT},
+                                     {'role': 'user', 'content': prompt}],
+         'stream': False, 'max_tokens': max_tokens}, timeout)
+    choices = response.get('choices', [])
+    if not choices or choices[0].get('finish_reason') != 'stop':
+        raise RuntimeError('Report API returned an incomplete completion.')
+    content = choices[0].get('message', {}).get('content')
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError('Report API returned empty content.')
+    return content.strip()
+
+
+def call_llm(provider, prompt, model, timeout, max_tokens=1024):
     if provider == "mock":
         raise RuntimeError("mock provider should be handled before call_llm.")
     if provider == "openrouter":
@@ -164,7 +208,9 @@ def call_llm(provider, prompt, model, timeout):
     if provider == "groq":
         return call_groq(prompt, model, timeout)
     if provider == "deepseek":
-        return call_deepseek(prompt, model, timeout)
+        return call_deepseek(prompt, model, timeout, max_tokens=max_tokens)
+    if provider == 'compatible':
+        return call_compatible(prompt, model, timeout, max_tokens=max_tokens)
     if provider == "gemini":
         return call_gemini(prompt, model, timeout)
     if provider == "huggingface":
@@ -225,7 +271,7 @@ def make_markdown_report(results):
 
 def _safe_error(error):
     message = f'{type(error).__name__}: {error}'
-    for key in ('OPENROUTER_API_KEY', 'GROQ_API_KEY', 'DEEPSEEK_API_KEY', 'GEMINI_API_KEY', 'HF_TOKEN'):
+    for key in ('LLM_API_KEY', 'OPENROUTER_API_KEY', 'GROQ_API_KEY', 'DEEPSEEK_API_KEY', 'GEMINI_API_KEY', 'HF_TOKEN'):
         if os.environ.get(key):
             message = message.replace(os.environ[key], '[REDACTED]')
             if os.environ[key].strip():
@@ -249,7 +295,8 @@ def generate_reports(samples, output, provider='mock', model=None, timeout=60, r
     for sample in samples:
         evidence = evidence_for(sample)
         prompt = build_prompt(sample)
-        fingerprint = object_hash({'evidence': evidence, 'system': DEFAULT_SYSTEM_PROMPT, 'provider': provider, 'model': model})
+        fingerprint = object_hash({'evidence': evidence, 'system': DEFAULT_SYSTEM_PROMPT, 'provider': provider, 'model': model,
+                                   **({'endpoint': compatible_endpoint()} if provider == 'compatible' else {})})
         old = existing.get(sample['id'])
         if old and old.get('fingerprint') == fingerprint and old.get('status') in ('mock', 'api'):
             item = dict(old)

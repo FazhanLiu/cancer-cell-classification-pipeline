@@ -40,7 +40,7 @@
 初始 Nginx 仅开放证书验证路径，其余返回 503；不会以 HTTP 暴露病例。
 不会清除现有 Nginx 站点；需要检查服务器现有 server_name 是否冲突。
 
-Python 包默认使用清华 PyPI 索引，CPU PyTorch 使用官方
+Python 包默认使用腾讯云 PyPI 索引，CPU PyTorch 使用官方
 `https://download.pytorch.org/whl/cpu`，不是容器镜像。
 这些是外部下载源；以后可在 `/etc/cancer/build.env` 改为内网包源。
 系统 apt 源沿用服务器现有配置。首次安装依赖需要可用外网。
@@ -149,3 +149,33 @@ GitHub 托管 runner 无法直接访问 VPC 私网。后续可选择可信独立
 
 参考：[GitHub environments](https://docs.github.com/en/actions/concepts/workflows-and-actions/deployment-environments)、
 [systemd 目录保护](https://www.freedesktop.org/software/systemd/man/254/systemd.exec.html)。
+
+## 切换报告 API（不更改本地图像推理接口）
+
+网站报告支持 `LLM_PROVIDER=compatible`，统一读取 `LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`。
+兼容 Chat Completions 的服务只需更换变量，不增加模型专用 Python 文件。
+`LLM_BASE_URL` 填 HTTPS API 根路径（例如供应商的 `/v1`），也接受完整 `/chat/completions` 地址；
+不允许 URL 内嵌账号、Key、查询参数。原来的 DeepSeek 配置继续有效。
+
+管理员可以通过 SSH 把私有 JSON 输入 `/usr/local/libexec/cancer-configure-report.py`，
+无需手动编辑环境文件。工具只更新指定环境的报告变量，保留本地图像模型路径、病例目录与代理令牌。
+文件原子替换，权限保持 root:对应运行账号 640，重启对应服务；重启命令失败时恢复旧配置。
+JSON 格式如下（请保存到 Git 忽略的 `.deploy-secrets/` 中；真实 Key 不提交或放进命令行参数）：
+
+```json
+{"provider":"compatible","base_url":"https://供应商地址/v1","model":"模型名称","api_key":"真实Key"}
+```
+
+通过已经配置的管理员 SSH 通道运行：
+
+```bash
+ssh ubuntu@43.133.91.17 'sudo python3 /usr/local/libexec/cancer-configure-report.py dev' < 私有配置.json
+```
+
+正式环境将 dev 改为 prod，分别配置以保持隔离。也可以将本机私有配置文件路径交给部署助手执行。
+换 API 地址或模型名会使旧报告缓存失效；不会把同名但不同供应商的结果混用。
+未配置本地分类权重时，只支持保存病例，仍不生成分类或区域解释。
+
+Python 包源参考：[腾讯云软件源文档](https://cloud.tencent.com/document/product/213/8623)。
+CI 的 Node 24 Actions 用法参考 [checkout](https://github.com/actions/checkout) 和
+[setup-python](https://github.com/actions/setup-python)。

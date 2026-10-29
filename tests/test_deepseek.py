@@ -88,3 +88,66 @@ def test_deepseek_cli_missing_key_fails_before_reading_input(monkeypatch, tmp_pa
                             capture_output=True, text=True, timeout=30)
     assert result.returncode != 0 and 'Set DEEPSEEK_API_KEY' in result.stderr
     assert not (tmp_path / 'reports').exists()
+
+
+def test_compatible_api_uses_endpoint_and_model_variables(monkeypatch):
+    from cancer_pipeline import reports
+    monkeypatch.setenv('LLM_PROVIDER', 'compatible')
+    monkeypatch.setenv('LLM_API_KEY', 'compatible-test-key')
+    monkeypatch.setenv('LLM_MODEL', 'report-model-a')
+    monkeypatch.setenv('LLM_BASE_URL', 'https://api.example.test/v1/')
+    received = []
+    def request(url, headers, payload, timeout):
+        received.append((url, headers, payload, timeout))
+        return {'choices': [{'finish_reason': 'stop', 'message': {'content': ' Report. '}}]}
+    monkeypatch.setattr(reports, 'request_json', request)
+    assert reports.report_settings() == {'provider': 'compatible', 'model': 'report-model-a', 'ready': True}
+    assert call_llm('compatible', 'evidence', 'report-model-a', 30, max_tokens=4096) == 'Report.'
+    url, headers, payload, timeout = received[-1]
+    assert url == 'https://api.example.test/v1/chat/completions'
+    assert headers['Authorization'] == 'Bearer compatible-test-key'
+    assert payload['model'] == 'report-model-a' and payload['max_tokens'] == 4096
+    assert 'thinking' not in payload and 'temperature' not in payload
+    monkeypatch.setenv('LLM_MODEL', 'report-model-b')
+    call_llm('compatible', 'evidence', reports.report_settings()['model'], 30)
+    assert received[-1][2]['model'] == 'report-model-b'
+
+
+@pytest.mark.parametrize('endpoint', ['', 'http://api.example/v1', 'https://user:password@api.example/v1',
+                                       'https://api.example/v1?key=secret', 'https://api.example/v1#fragment'])
+def test_compatible_rejects_unsafe_base_urls(monkeypatch, endpoint):
+    from cancer_pipeline.reports import compatible_endpoint
+    monkeypatch.setenv('LLM_BASE_URL', endpoint)
+    with pytest.raises(ValueError, match='HTTPS API base URL'):
+        compatible_endpoint()
+
+
+def test_compatible_case_cache_changes_with_endpoint(monkeypatch, tmp_path):
+    from cancer_pipeline.case_reports import generate_case_report
+    monkeypatch.setenv('LLM_BASE_URL', 'https://one.example/v1')
+    case = {'id': 'test-case', 'reference': 'private-reference', 'images': [
+        {'id': 'image_001', 'status': 'complete',
+         'prediction': {'pred_label': 1, 'prob_cancer': 0.8, 'threshold': 0.5}}]}
+    calls = []
+    def caller(provider, prompt, model, timeout):
+        calls.append(provider)
+        assert 'private-reference' not in prompt
+        return 'Evidence summary.'
+    first = generate_case_report(case, tmp_path, 'shared-name', caller=caller, provider='compatible')
+    generate_case_report(case, tmp_path, 'shared-name', caller=caller, provider='compatible')
+    assert len(calls) == 1
+    monkeypatch.setenv('LLM_BASE_URL', 'https://two.example/v1')
+    second = generate_case_report(case, tmp_path, 'shared-name', caller=caller, provider='compatible')
+    assert calls == ['compatible', 'compatible']
+    assert first['fingerprint'] != second['fingerprint']
+
+
+def test_compatible_redacts_key_from_saved_errors(monkeypatch, tmp_path):
+    monkeypatch.setenv('LLM_API_KEY', ' generic-test-secret ')
+    monkeypatch.setenv('LLM_BASE_URL', 'https://api.example/v1')
+    def failing(*args):
+        raise RuntimeError('Failure includes generic-test-secret')
+    sample = {'id': 'a', 'pred_label': 1, 'prob_cancer': 0.8, 'threshold': 0.5}
+    result = generate_reports([sample], tmp_path, 'compatible', 'report-model', retries=0, sleep=0, caller=failing)
+    assert result[0]['status'] == 'failed' and '[REDACTED]' in result[0]['error']
+    assert 'generic-test-secret' not in (tmp_path / 'llm_explanations.json').read_text()
