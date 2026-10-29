@@ -376,3 +376,10 @@ GitHub Actions 配置为 CPU 检查。DeepSeek 测试拦截 HTTP，不产生真�
 **阈值和 checkpoint 不匹配怎么办？** 使用该 checkpoint 自己的验证预测重新选择阈值，不要将其他实验的决策文件套用到它上面。
 
 **多个 patch 的阳性数量可以视为患者风险吗？** 当前没有病例级校准或聚合模型，只报告逐图分类统计，不能换算成患者患癌概率。
+
+## 单服务器测试与正式环境
+
+`dev` 对应测试域名 `dev.cancercell.otisliu.com`，`main` 对应正式域名
+`cancercell.otisliu.com`。推送和 PR 自动运行 CPU CI；部署在服务器准备完成后通过
+`DEPLOY_ENABLED=true` 显式启用。隔离方式、初始化、HTTPS、Secrets 与回滚见
+[部署说明](deploy/README.md)。

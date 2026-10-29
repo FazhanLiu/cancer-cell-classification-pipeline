@@ -1,8 +1,18 @@
-name: CPU checks
-on: [push, pull_request]
+name: CI and deploy
+on:
+  push:
+    branches: [main, dev, master]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       MPLBACKEND: Agg
       MPLCONFIGDIR: /tmp/cancer-matplotlib
@@ -15,7 +25,49 @@ jobs:
           python-version: '3.10'
           cache: pip
       - run: python -m pip install torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cpu
-      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pip install -r requirements-dev.txt -r requirements-server.txt
       - run: python -m pip install --no-deps --no-build-isolation -e .
-      - run: python -m compileall -q src scripts tests
+      - run: python -m compileall -q src scripts tests deploy
+      - run: bash -n deploy/receive.sh deploy/bootstrap.sh deploy/configure-github.sh
       - run: python -m pytest -q
+
+  deploy:
+    needs: test
+    if: vars.DEPLOY_ENABLED == 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+      url: ${{ github.ref == 'refs/heads/main' && 'https://cancercell.otisliu.com' || 'https://dev.cancercell.otisliu.com' }}
+    concurrency:
+      group: deploy-${{ github.ref_name }}
+      cancel-in-progress: false
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_PORT: ${{ secrets.SSH_PORT }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Publish the tested commit over SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : "${SSH_HOST:?Missing environment secret}"
+          : "${SSH_USER:?Missing environment secret}"
+          : "${SSH_PORT:?Missing environment secret}"
+          : "${SSH_PRIVATE_KEY:?Missing environment secret}"
+          : "${SSH_KNOWN_HOSTS:?Missing environment secret}"
+          umask 077
+          key_dir=$(mktemp -d)
+          trap 'rm -rf "$key_dir"' EXIT
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$key_dir/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$key_dir/known_hosts"
+          git archive --format=tar.gz "$GITHUB_SHA" > "$key_dir/release.tar.gz"
+          ssh -F /dev/null -i "$key_dir/key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$key_dir/known_hosts" -o ConnectTimeout=15 \
+            -l "$SSH_USER" "$SSH_HOST" "deploy $GITHUB_SHA" < "$key_dir/release.tar.gz"

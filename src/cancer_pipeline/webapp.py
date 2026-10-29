@@ -229,6 +229,9 @@ def create_app(settings=None, runtime=None, llm_caller=None):
                       MAX_CONTENT_LENGTH=100 * 1024 * 1024,
                       MAX_FORM_MEMORY_SIZE=32 * 1024, MAX_FORM_PARTS=24,
                       TRUSTED_HOSTS=['localhost', '127.0.0.1', '[::1]'],
+                      PROXY_TOKEN=None,
+                      DEPLOYMENT_ENV='local',
+                      RELEASE='local',
                       LOCAL_TOKEN=secrets.token_urlsafe(32))
     app.config.update(settings or {})
     model_error = None
@@ -252,6 +255,12 @@ def create_app(settings=None, runtime=None, llm_caller=None):
     def local_boundary():
         if request.remote_addr not in {None, '127.0.0.1', '::1'}:
             abort(403, description='此版本仅支持本机访问。')
+        # Each hosted environment trusts only its own reverse proxy credential.
+        # Even another process on this server cannot read case data through HTTP.
+        if request.path != '/healthz' and app.config['PROXY_TOKEN']:
+            if not secrets.compare_digest(request.headers.get('X-Cancer-Proxy-Token', ''),
+                                          app.config['PROXY_TOKEN']):
+                abort(403)
         if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
             if not secrets.compare_digest(request.headers.get('X-Local-Token', ''), app.config['LOCAL_TOKEN']):
                 abort(403, description='请求已过期，请刷新页面后重试。')
@@ -276,6 +285,13 @@ def create_app(settings=None, runtime=None, llm_caller=None):
     @app.get('/')
     def index():
         return render_template('index.html', token=app.config['LOCAL_TOKEN'])
+
+    @app.get('/healthz')
+    def health():
+        healthy = not app.config['MODEL_PATH'] or runtime is not None
+        return jsonify(status='ok' if healthy else 'unhealthy',
+                       environment=app.config['DEPLOYMENT_ENV'], release=app.config['RELEASE'],
+                       model_ready=runtime is not None), 200 if healthy else 503
 
     @app.get('/api/status')
     def status():
