@@ -15,10 +15,11 @@ if [[ "$mode" == prepare ]]; then
     install -d -m 755 /etc/cancer /usr/local/libexec /var/www/cancer-acme
     install -m 755 "$script_dir/receive.sh" /usr/local/libexec/cancer-deploy
     install -m 644 "$script_dir/extract.py" /usr/local/libexec/cancer-extract.py
+    install -m 644 "$script_dir/configure-report.py" /usr/local/libexec/cancer-configure-report.py
     install -m 644 "$script_dir/cancer@.service" /etc/systemd/system/cancer@.service
     if [[ ! -f /etc/cancer/build.env ]]; then
         cat > /etc/cancer/build.env <<'BUILD'
-PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
 TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 BUILD
         chmod 644 /etc/cancer/build.env

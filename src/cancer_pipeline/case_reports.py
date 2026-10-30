@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from cancer_pipeline.artifacts import object_hash, read_json, save_json
-from cancer_pipeline.reports import DEFAULT_SYSTEM_PROMPT, _safe_error, call_deepseek, evidence_for
+from cancer_pipeline.reports import DEFAULT_SYSTEM_PROMPT, _safe_error, call_llm, compatible_endpoint, evidence_for
 
 
 def case_evidence(case):
@@ -24,7 +24,7 @@ def case_evidence(case):
                        'XAI 展示模型证据，不证明癌细胞位置。Attention 不区分类别。']}
 
 
-def generate_case_report(case, output_dir, model, timeout=120, caller=None):
+def generate_case_report(case, output_dir, model, timeout=120, caller=None, provider='deepseek'):
     evidence = case_evidence(case)
     if not evidence['classified_images']:
         raise ValueError('没有成功分类的图片，无法生成病例报告。')
@@ -36,20 +36,21 @@ def generate_case_report(case, output_dir, model, timeout=120, caller=None):
               '有失败或缺失解释时明确说明。最终结论应由医生结合原始切片复核。\n\n' +
               json.dumps(evidence, ensure_ascii=False, allow_nan=False))
     fingerprint = object_hash({'evidence': evidence, 'prompt': prompt, 'model': model,
-                               'system': DEFAULT_SYSTEM_PROMPT, 'provider': 'deepseek'})
+                               'system': DEFAULT_SYSTEM_PROMPT, 'provider': provider,
+                               **({'endpoint': compatible_endpoint()} if provider == 'compatible' else {})})
     output = Path(output_dir)
     path = output / 'case_report.json'
     if path.exists():
         previous = read_json(path)
         if previous.get('fingerprint') == fingerprint and previous.get('status') == 'complete':
             return previous
-    report = {'max_output_tokens': 4096, 'provider': 'deepseek', 'model': model, 'fingerprint': fingerprint,
+    report = {'max_output_tokens': 4096, 'provider': provider, 'model': model, 'fingerprint': fingerprint,
               'evidence': evidence, 'prompt': prompt, 'system_prompt': DEFAULT_SYSTEM_PROMPT,
               'generated_utc': datetime.now(timezone.utc).isoformat()}
     try:
-        text = caller('deepseek', prompt, model, timeout) if caller else call_deepseek(prompt, model, timeout, max_tokens=4096)
+        text = caller(provider, prompt, model, timeout) if caller else call_llm(provider, prompt, model, timeout, max_tokens=4096)
         if not isinstance(text, str) or not text.strip():
-            raise ValueError('DeepSeek 返回了空报告。')
+            raise ValueError('报告 API 返回了空内容。')
         report.update(status='complete', text=text.strip())
     except Exception as error:
         report.update(status='failed', error=_safe_error(error))

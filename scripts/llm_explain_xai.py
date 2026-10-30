@@ -5,14 +5,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from cancer_pipeline.artifacts import file_hash, new_run, read_json, save_json
 from cancer_pipeline.config import load_environment
-from cancer_pipeline.reports import build_prompt, generate_reports, mock_explanation
+from cancer_pipeline.reports import build_prompt, compatible_endpoint, generate_reports, mock_explanation
 
 
 def main():
     parser = argparse.ArgumentParser(description='Generate resumable reports from XAI evidence; no labels are sent to the LLM.')
     parser.add_argument('--input', required=True)
     parser.add_argument('--output', default='outputs/reports')
-    parser.add_argument('--provider', choices=['mock', 'deepseek', 'openrouter', 'groq', 'gemini', 'huggingface'], default='mock')
+    parser.add_argument('--provider', choices=['mock', 'compatible', 'deepseek', 'openrouter', 'groq', 'gemini', 'huggingface'], default='mock')
     parser.add_argument('--model', help='Required for real API calls.')
     parser.add_argument('--env-file', default=str(Path(__file__).resolve().parents[1] / '.env'),
                         help='Environment file; defaults to the project root .env. Existing environment values take priority.')
@@ -30,6 +30,10 @@ def main():
     load_environment(args.env_file)
     if args.provider == 'deepseek' and not os.environ.get('DEEPSEEK_API_KEY', '').strip():
         parser.error('Set DEEPSEEK_API_KEY in your environment or .env before using --provider deepseek')
+    if args.provider == 'compatible':
+        if not os.environ.get('LLM_API_KEY', '').strip():
+            parser.error('Set LLM_API_KEY before using --provider compatible')
+        compatible_endpoint()
     samples = read_json(args.input)[:args.max_samples]
     if not samples:
         raise ValueError('No explanation samples.')

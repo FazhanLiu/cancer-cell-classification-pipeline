@@ -9,6 +9,7 @@ case "$environment" in dev) port=8766;; prod) port=8765;; *) exit 64;; esac
 release_sha=${BASH_REMATCH[1]}
 base="/srv/cancer-$environment"
 exec 9>"$base/deploy.lock"
+echo "Waiting for $environment deployment lock"
 flock -w 900 9
 release=$(mktemp -d "$base/releases/${release_sha}.XXXXXXXX")
 archive=$(mktemp "$base/releases/.archive.XXXXXXXX")
@@ -43,10 +44,10 @@ chmod 755 "$release"
 # Dependencies are prepared without changing the running release.
 python3 -m venv "$release/.venv"
 source /etc/cancer/build.env
-export PIP_INDEX_URL PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_INPUT=1
+export PIP_INDEX_URL PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_INPUT=1 PIP_DEFAULT_TIMEOUT=30 PIP_RETRIES=2
 "$release/.venv/bin/python" -m pip install 'pip<26' 'setuptools>=65' wheel
-"$release/.venv/bin/python" -m pip install torch==2.7.0 torchvision==0.22.0 --index-url "$TORCH_INDEX_URL"
-"$release/.venv/bin/python" -m pip install -r "$release/requirements-server.txt"
+"$release/.venv/bin/python" -m pip install --no-deps torch==2.7.0 torchvision==0.22.0 --index-url "$TORCH_INDEX_URL"
+"$release/.venv/bin/python" -m pip install --only-binary=:all: -r "$release/requirements-server.txt"
 "$release/.venv/bin/python" -m pip install --no-deps --no-build-isolation "$release"
 printf 'CANCER_RELEASE=%s\n' "$release_sha" > "$release/release.env"
 ln -s "$release" "$base/current.next"

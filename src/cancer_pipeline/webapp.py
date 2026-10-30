@@ -20,7 +20,7 @@ from cancer_pipeline.artifacts import read_json, save_json
 from cancer_pipeline.case_reports import generate_case_report
 from cancer_pipeline.config import load_environment
 from cancer_pipeline.inference import PatchInference
-from cancer_pipeline.reports import _safe_error
+from cancer_pipeline.reports import _safe_error, report_settings
 
 ROOT = Path(__file__).resolve().parents[2]
 LOGGER = logging.getLogger(__name__)
@@ -108,9 +108,10 @@ class CaseStore:
 
 
 class CaseJobs:
-    def __init__(self, store, runtime, llm_model, llm_caller=None):
+    def __init__(self, store, runtime, llm_model, llm_caller=None, llm_provider='deepseek'):
         self.store, self.runtime = store, runtime
         self.llm_model, self.llm_caller = llm_model, llm_caller
+        self.llm_provider = llm_provider
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='patch-analysis')
         self.lock = threading.Lock()
         self.active = set()
@@ -125,7 +126,7 @@ class CaseJobs:
             if len(self.active) >= 8:
                 raise ValueError('本机待处理任务已满，请稍后重试。')
             if case['status'] == 'complete':
-                raise ValueError('此病例已完成，无需重复调用模型或 DeepSeek。')
+                raise ValueError('此病例已完成，无需重复调用模型或报告 API。')
             if case.get('model') and case['model'].get('analysis_hash') != self.runtime.info().get('analysis_hash'):
                 raise ValueError('模型、阈值或解释参数已变更，请新建病例，避免混合不同设置的结果。')
             case = self.store.update(case_id, lambda c: c.update(status='queued', message='已加入本机分析队列。'))
@@ -168,11 +169,12 @@ class CaseJobs:
             self.store.update(case_id, lambda c: c.update(message='整理逐图证据，生成中文病例汇总。', report={'status': 'generating'}))
             snapshot = self.store.get(case_id)
             if not any(x.get('prediction') for x in snapshot['images']):
-                report = {'status': 'failed', 'error': '所有图片分类失败，未调用 DeepSeek，请检查图像与模型。'}
-            elif not os.environ.get('DEEPSEEK_API_KEY', '').strip():
-                report = {'status': 'failed', 'error': '尚未配置 DeepSeek Key。请填写 .env 并重启服务，再继续分析。'}
+                report = {'status': 'failed', 'error': '所有图片分类失败，未调用报告 API，请检查图像与模型。'}
+            elif not report_settings()['ready']:
+                report = {'status': 'failed', 'error': '报告服务尚未配置，请联系管理员连接 API 后继续生成报告。'}
             else:
-                report = generate_case_report(snapshot, self.store.directory(case_id), self.llm_model, caller=self.llm_caller)
+                report = generate_case_report(snapshot, self.store.directory(case_id), self.llm_model,
+                                              caller=self.llm_caller, provider=self.llm_provider)
             def complete(case):
                 case['report'] = report
                 all_images = all(x['status'] == 'complete' for x in case['images'])
@@ -220,12 +222,13 @@ def read_upload(storage):
 
 def create_app(settings=None, runtime=None, llm_caller=None):
     load_environment(ROOT / '.env')
+    llm = report_settings()
     app = Flask(__name__, template_folder='web/templates', static_folder='web/assets', static_url_path='/assets')
     app.config.update(OUTPUT_ROOT=str(ROOT / 'outputs' / 'web_cases'),
                       MODEL_PATH=os.environ.get('CANCER_MODEL_PATH', ''),
                       DECISION_PATH=os.environ.get('CANCER_DECISION_PATH', ''),
                       DEVICE=os.environ.get('CANCER_DEVICE', 'auto'),
-                      LLM_MODEL=os.environ.get('DEEPSEEK_MODEL', 'deepseek-flash'),
+                      LLM_MODEL=llm['model'], LLM_PROVIDER=llm['provider'],
                       MAX_CONTENT_LENGTH=100 * 1024 * 1024,
                       MAX_FORM_MEMORY_SIZE=32 * 1024, MAX_FORM_PARTS=24,
                       TRUSTED_HOSTS=['localhost', '127.0.0.1', '[::1]'],
@@ -247,7 +250,7 @@ def create_app(settings=None, runtime=None, llm_caller=None):
         except Exception as error:
             model_error = _safe_error(error)
     store = CaseStore(app.config['OUTPUT_ROOT'])
-    jobs = CaseJobs(store, runtime, app.config['LLM_MODEL'], llm_caller)
+    jobs = CaseJobs(store, runtime, app.config['LLM_MODEL'], llm_caller, app.config['LLM_PROVIDER'])
     app.extensions.update(case_store=store, case_jobs=jobs)
     atexit.register(jobs.close)
 
@@ -284,7 +287,8 @@ def create_app(settings=None, runtime=None, llm_caller=None):
 
     @app.get('/')
     def index():
-        return render_template('index.html', token=app.config['LOCAL_TOKEN'])
+        return render_template('index.html', token=app.config['LOCAL_TOKEN'], report_model=app.config['LLM_MODEL'],
+                               deployment_environment=app.config['DEPLOYMENT_ENV'])
 
     @app.get('/healthz')
     def health():
@@ -296,9 +300,9 @@ def create_app(settings=None, runtime=None, llm_caller=None):
     @app.get('/api/status')
     def status():
         return jsonify(model_ready=runtime is not None, model=runtime.info() if runtime else None,
-                       model_error=model_error, llm_ready=bool(os.environ.get('DEEPSEEK_API_KEY', '').strip()),
-                       llm_model=app.config['LLM_MODEL'], max_images=20, max_file_mb=10,
-                       local_only=True)
+                       model_error=model_error, llm_ready=report_settings()['ready'],
+                       llm_model=app.config['LLM_MODEL'], llm_provider=app.config['LLM_PROVIDER'], max_images=20, max_file_mb=10,
+                       local_only=not bool(app.config['PROXY_TOKEN']))
 
     @app.get('/api/cases')
     def list_cases():
